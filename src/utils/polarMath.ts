@@ -10,21 +10,23 @@ export interface CornerWeights {
   w4: number
 }
 
-export interface PoleParams {
-  primary: number
-  secondary: number
-}
-
 export type CornerKey = keyof CornerWeights
-export type CornerParamMap = Record<CornerKey, PoleParams>
+
+export interface RenderSettings {
+  hatchSpacing: number
+  strokeWeight: number
+  chromaticShift: number
+  spectralGain: number
+  inkSpread: number
+  paperSoak: number
+  matrixSpacing: number
+  dotGain: number
+}
 
 export interface CornerDefinition {
   id: string
-  quadrant: string
   coordinates: Point2D
   title: string
-  description: string
-  dockLabel: string
   sliders: [string, string]
 }
 
@@ -37,54 +39,47 @@ export interface SpecimenInstance {
 }
 
 export const IDW_EPSILON = 0.0001
-export const TILE_SIZE = 90
-export const HERO_SIZE = 260
-export const COLLISION_PX = 95
+export const TILE_SIZE = 72
+export const HERO_SIZE = 160
+export const D_MIN = 88
+export const FIELD_CLAMP = 0.85
 export const STATUS_BAR_H = 36
 
-export const DEFAULT_POLE_PARAMS: CornerParamMap = {
-  w1: { primary: 0.72, secondary: 0.58 },
-  w2: { primary: 0.66, secondary: 0.52 },
-  w3: { primary: 0.6, secondary: 0.5 },
-  w4: { primary: 0.55, secondary: 0.48 },
+export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
+  hatchSpacing: 5.5,
+  strokeWeight: 1.1,
+  chromaticShift: 4,
+  spectralGain: 0.75,
+  inkSpread: 2.2,
+  paperSoak: 0.35,
+  matrixSpacing: 6,
+  dotGain: 1.2,
 }
 
 export const CORNERS: Record<CornerKey, CornerDefinition> = {
   w1: {
     id: 'etching',
-    quadrant: 'NW',
     coordinates: { x: -1.0, y: 1.0 },
     title: 'Renaissance Etching',
-    description: 'Intaglio cross-hatching & razor-sharp stroke contrast',
-    dockLabel: 'NW // Renaissance Etching',
-    sliders: ['Stroke density', 'Contrast'],
+    sliders: ['Hatch Density', 'Stroke Weight'],
   },
   w2: {
     id: 'caustic',
-    quadrant: 'NE',
     coordinates: { x: 1.0, y: 1.0 },
     title: 'Prismatic Caustic',
-    description: 'Chromatic aberration — red/cyan split across radial lines',
-    dockLabel: 'NE // Prismatic Caustic',
-    sliders: ['Chromatic shift', 'Fringe gain'],
+    sliders: ['Chromatic Shift', 'Spectral Gain'],
   },
   w3: {
     id: 'bleed',
-    quadrant: 'SW',
     coordinates: { x: -1.0, y: -1.0 },
     title: 'Woodblock Bleed',
-    description: 'Soft radial ink pooling, capillary blur & fibrous spread',
-    dockLabel: 'SW // Woodblock Bleed',
-    sliders: ['Ink pool', 'Fiber spread'],
+    sliders: ['Ink Spread', 'Paper Soak'],
   },
   w4: {
     id: 'dither',
-    quadrant: 'SE',
     coordinates: { x: 1.0, y: -1.0 },
     title: 'Halftone Dither',
-    description: 'Bayer / halftone dot matrix across high-density regions',
-    dockLabel: 'SE // Halftone Dither',
-    sliders: ['Screen frequency', 'Dot gain'],
+    sliders: ['Matrix Frequency', 'Dot Gain'],
   },
 }
 
@@ -113,10 +108,10 @@ export function calculateCornerWeights(point: Point2D): CornerWeights {
 
 export const BALANCED_WEIGHTS = calculateCornerWeights({ x: 0, y: 0 })
 
-export function clampCoordinates(point: Point2D): Point2D {
+export function clampField(point: Point2D): Point2D {
   return {
-    x: Math.max(-1.0, Math.min(1.0, point.x)),
-    y: Math.max(-1.0, Math.min(1.0, point.y)),
+    x: Math.max(-FIELD_CLAMP, Math.min(FIELD_CLAMP, point.x)),
+    y: Math.max(-FIELD_CLAMP, Math.min(FIELD_CLAMP, point.y)),
   }
 }
 
@@ -126,7 +121,7 @@ export function pixelToNormalizedRect(
   width: number,
   height: number,
 ): Point2D {
-  return clampCoordinates({
+  return clampField({
     x: (px / width) * 2 - 1,
     y: 1 - (py / height) * 2,
   })
@@ -143,64 +138,72 @@ export function normalizedToPixelRect(
   }
 }
 
-export function instanceAtPoint(
-  x: number,
-  y: number,
-  options?: { id?: string; size?: number },
-): SpecimenInstance {
-  const coords = clampCoordinates({ x, y })
+export function instanceAtPoint(x: number, y: number): SpecimenInstance {
+  const coords = clampField({ x, y })
   return {
-    id: options?.id ?? crypto.randomUUID(),
+    id: crypto.randomUUID(),
     x: coords.x,
     y: coords.y,
     weights: calculateCornerWeights(coords),
-    size: options?.size ?? TILE_SIZE,
+    size: TILE_SIZE,
   }
 }
 
 interface PixelObstacle {
   x: number
   y: number
-  size: number
+  clearance: number
 }
 
-/** Radial push so a new tile stays clear of the hero and other instances. */
-export function resolveCollisionPx(
+/**
+ * Iterative radial push so the stamp center stays ≥ D_min from the hero
+ * and every existing tile, then clamp into the [-0.85, 0.85] field.
+ */
+export function resolveClearance(
   px: number,
   py: number,
-  selfSize: number,
   plane: { width: number; height: number },
   obstacles: PixelObstacle[],
 ): Point2D {
   let x = px
   let y = py
-  const half = selfSize / 2
 
-  for (let iter = 0; iter < 18; iter++) {
+  for (let iter = 0; iter < 28; iter++) {
     let moved = false
     for (const obs of obstacles) {
-      const minDist = Math.max(COLLISION_PX, (obs.size + selfSize) / 2 + 4)
       let dx = x - obs.x
       let dy = y - obs.y
       let dist = Math.hypot(dx, dy)
       if (dist < 1e-4) {
-        const ang = 0.785 + iter * 0.9
+        const ang = 0.7 + iter * 0.9
         dx = Math.cos(ang)
         dy = Math.sin(ang)
         dist = 0
       }
-      if (dist < minDist) {
+      if (dist < obs.clearance) {
         const nx = dx / (dist || 1)
         const ny = dy / (dist || 1)
-        x = obs.x + nx * minDist
-        y = obs.y + ny * minDist
+        x = obs.x + nx * obs.clearance
+        y = obs.y + ny * obs.clearance
         moved = true
       }
     }
-    x = Math.max(half + 8, Math.min(plane.width - half - 8, x))
-    y = Math.max(half + 8, Math.min(plane.height - half - 8, y))
+
+    const clamped = clampField(pixelToNormalizedRect(x, y, plane.width, plane.height))
+    const back = normalizedToPixelRect(clamped, plane.width, plane.height)
+    if (Math.hypot(back.x - x, back.y - y) > 0.5) moved = true
+    x = back.x
+    y = back.y
     if (!moved) break
   }
 
-  return { x, y }
+  return clampField(pixelToNormalizedRect(x, y, plane.width, plane.height))
+}
+
+export function heroClearance(): number {
+  return Math.max(D_MIN, (HERO_SIZE + TILE_SIZE) / 2 + 4)
+}
+
+export function tileClearance(): number {
+  return D_MIN
 }

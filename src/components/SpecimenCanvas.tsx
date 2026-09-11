@@ -1,20 +1,12 @@
 import { useEffect, useRef } from 'react'
-import type { CornerParamMap, CornerWeights } from '../utils/polarMath'
-import { DEFAULT_POLE_PARAMS } from '../utils/polarMath'
+import type { CornerWeights, RenderSettings } from '../utils/polarMath'
+import { DEFAULT_RENDER_SETTINGS } from '../utils/polarMath'
 
 interface SpecimenCanvasProps {
   weights: CornerWeights
   size: number
-  poleParams?: CornerParamMap
-  compact?: boolean
+  settings: RenderSettings
 }
-
-const BAYER4 = [
-  [0, 8, 2, 10],
-  [12, 4, 14, 6],
-  [3, 11, 1, 9],
-  [15, 7, 13, 5],
-]
 
 function drawAstrolabe(
   ctx: CanvasRenderingContext2D,
@@ -24,17 +16,15 @@ function drawAstrolabe(
   offsetX: number,
   strokeStyle: string,
   lineWidth: number,
-  detail: number,
 ) {
   ctx.save()
   ctx.strokeStyle = strokeStyle
   ctx.lineWidth = lineWidth
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
-
   const ox = cx + offsetX
 
-  for (const r of [radius, radius * 0.82, radius * 0.64, radius * 0.28]) {
+  for (const r of [radius, radius * 0.76, radius * 0.5, radius * 0.2]) {
     ctx.beginPath()
     ctx.arc(ox, cy, r, 0, Math.PI * 2)
     ctx.stroke()
@@ -47,30 +37,14 @@ function drawAstrolabe(
   ctx.lineTo(ox, cy + radius)
   ctx.stroke()
 
-  const rays = detail > 0.55 ? 16 : 12
+  const rays = 12
   for (let i = 0; i < rays; i++) {
     const theta = (i * Math.PI * 2) / rays
-    const inner = radius * (i % 2 === 0 ? 0.28 : 0.4)
     ctx.beginPath()
-    ctx.moveTo(ox + Math.cos(theta) * inner, cy + Math.sin(theta) * inner)
+    ctx.moveTo(ox + Math.cos(theta) * radius * 0.2, cy + Math.sin(theta) * radius * 0.2)
     ctx.lineTo(ox + Math.cos(theta) * radius, cy + Math.sin(theta) * radius)
     ctx.stroke()
   }
-
-  const ticks = detail > 0.55 ? 72 : 36
-  for (let i = 0; i < ticks; i++) {
-    const theta = (i * Math.PI * 2) / ticks
-    const major = i % 6 === 0
-    const t0 = radius * (major ? 0.92 : 0.96)
-    ctx.beginPath()
-    ctx.moveTo(ox + Math.cos(theta) * t0, cy + Math.sin(theta) * t0)
-    ctx.lineTo(ox + Math.cos(theta) * radius, cy + Math.sin(theta) * radius)
-    ctx.stroke()
-  }
-
-  ctx.beginPath()
-  ctx.arc(ox, cy, radius * 0.12, 0, Math.PI * 2)
-  ctx.stroke()
 
   ctx.restore()
 }
@@ -79,122 +53,106 @@ export function renderPlate(
   ctx: CanvasRenderingContext2D,
   size: number,
   weights: CornerWeights,
-  poleParams: CornerParamMap = DEFAULT_POLE_PARAMS,
+  settings: RenderSettings = DEFAULT_RENDER_SETTINGS,
 ) {
-  ctx.fillStyle = '#0B0C11'
+  ctx.fillStyle = '#111319'
   ctx.fillRect(0, 0, size, size)
 
   const cx = size / 2
   const cy = size / 2
-  const baseRadius = size * 0.38
-  const scale = size / 420
-  const etch = weights.w1 * (0.35 + poleParams.w1.primary)
-  const contrast = poleParams.w1.secondary
-  const caustic = weights.w2 * (0.35 + poleParams.w2.secondary)
-  const shiftAmt = poleParams.w2.primary
-  const bleed = weights.w3 * (0.35 + poleParams.w3.primary)
-  const fiber = poleParams.w3.secondary
-  const dither = weights.w4 * (0.35 + poleParams.w4.secondary)
-  const frequency = poleParams.w4.primary
+  const radius = size * 0.4
+  const { w1, w2, w3, w4 } = weights
 
-  if (bleed > 0.01) {
-    const pool = ctx.createRadialGradient(
-      cx,
-      cy,
-      baseRadius * 0.15,
-      cx,
-      cy,
-      baseRadius * (1.1 + bleed * 0.35 + fiber * 0.2),
-    )
-    pool.addColorStop(0, `rgba(42, 28, 18, ${0.55 * bleed})`)
-    pool.addColorStop(0.45, `rgba(160, 118, 72, ${0.28 * bleed})`)
-    pool.addColorStop(0.78, `rgba(180, 150, 110, ${0.14 * bleed * fiber})`)
-    pool.addColorStop(1, 'rgba(11, 12, 17, 0)')
-    ctx.fillStyle = pool
-    ctx.beginPath()
-    ctx.arc(cx, cy, baseRadius * 1.28, 0, Math.PI * 2)
-    ctx.fill()
+  const hatchSpacing = settings.hatchSpacing
+  const strokeWeight = settings.strokeWeight
+  const chromaticShift = Math.min(6, Math.max(2, settings.chromaticShift))
+  const spectralGain = settings.spectralGain
+  const inkWidth = Math.min(3.5, Math.max(1, settings.inkSpread))
+  const paperSoak = settings.paperSoak
+  const matrixSpacing = settings.matrixSpacing
+  const dotGain = Math.min(1.8, Math.max(0.8, settings.dotGain))
 
+  // SW — crisp sumi strokes (no canvas blur)
+  if (w3 > 0.04) {
     ctx.save()
-    ctx.globalAlpha = bleed * 0.35 * fiber
-    ctx.strokeStyle = 'rgba(196, 154, 96, 0.45)'
-    ctx.lineWidth = (6 + bleed * 10) * scale
+    ctx.strokeStyle = `rgba(190, 160, 120, ${0.22 + paperSoak * w3})`
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    const bands = 7
+    for (let i = 0; i < bands; i++) {
+      const t = (i / (bands - 1) - 0.5) * radius * 1.4
+      ctx.lineWidth = inkWidth * (0.65 + w3 * 0.9)
+      ctx.beginPath()
+      ctx.moveTo(cx - radius * 0.95, cy + t * 0.35)
+      ctx.quadraticCurveTo(cx + t * 0.15, cy + t, cx + radius * 0.95, cy + t * 0.2)
+      ctx.stroke()
+    }
+    ctx.strokeStyle = `rgba(190, 160, 120, ${0.18 + w3 * 0.28})`
+    ctx.lineWidth = Math.max(1, inkWidth * 0.7)
     ctx.beginPath()
-    ctx.arc(cx, cy, baseRadius * 1.02, 0, Math.PI * 2)
+    ctx.arc(cx, cy, radius * (0.92 + w3 * 0.08), 0, Math.PI * 2)
     ctx.stroke()
     ctx.restore()
   }
 
-  if (caustic > 0.03) {
-    const shift = caustic * 10 * shiftAmt * Math.max(scale, 0.35)
-    const fringe = 0.35 + caustic * 0.55
-    drawAstrolabe(ctx, cx, cy, baseRadius, -shift, `rgba(239, 68, 68, ${fringe})`, Math.max(0.6, 1.35 * scale), scale)
-    drawAstrolabe(ctx, cx, cy, baseRadius, shift, `rgba(0, 229, 255, ${fringe})`, Math.max(0.6, 1.35 * scale), scale)
+  // NE — red/cyan offset, 2–6px
+  if (w2 > 0.05) {
+    const shift = chromaticShift * w2
+    const alpha = spectralGain * Math.max(0.35, w2)
+    drawAstrolabe(ctx, cx, cy, radius, -shift, `rgba(255, 48, 48, ${alpha})`, Math.max(0.7, strokeWeight * 0.9))
+    drawAstrolabe(ctx, cx, cy, radius, shift, `rgba(0, 220, 255, ${alpha})`, Math.max(0.7, strokeWeight * 0.9))
   }
 
-  const strokeWidth = Math.max(0.45, (0.85 + bleed * 2.2 + etch * 0.4) * Math.max(scale, 0.4))
-  const baseAlpha = 0.32 + etch * 0.55 * (0.45 + contrast)
-  drawAstrolabe(ctx, cx, cy, baseRadius, 0, `rgba(244, 241, 234, ${baseAlpha})`, strokeWidth, scale)
+  const plateAlpha = 0.28 + w1 * 0.62
+  drawAstrolabe(ctx, cx, cy, radius, 0, `rgba(255, 255, 255, ${plateAlpha})`, strokeWeight)
 
-  if (etch > 0.04) {
+  // NW — sharp white cross-hatch
+  if (w1 > 0.06) {
     ctx.save()
-    ctx.beginPath()
-    ctx.arc(cx, cy, baseRadius, 0, Math.PI * 2)
-    ctx.clip()
-    ctx.strokeStyle = `rgba(229, 169, 60, ${0.42 * etch * contrast})`
-    ctx.lineWidth = Math.max(0.4, (0.7 + etch * 0.4) * Math.max(scale, 0.45))
-    const step = Math.max(2.2, (16 - etch * 12 * poleParams.w1.primary) * Math.max(scale, 0.55))
-    const span = baseRadius
-    for (let x = cx - span; x < cx + span; x += step) {
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.28 + w1 * 0.7})`
+    ctx.lineWidth = Math.max(0.5, strokeWeight)
+    const step = Math.max(3.2, hatchSpacing)
+    for (let x = -size; x < size * 2; x += step) {
       ctx.beginPath()
-      ctx.moveTo(x, cy - span)
-      ctx.lineTo(x + span * 0.55, cy + span)
+      ctx.moveTo(x, 0)
+      ctx.lineTo(x + size * 0.5, size)
       ctx.stroke()
     }
-    ctx.strokeStyle = `rgba(244, 241, 234, ${0.18 * etch})`
-    for (let y = cy - span; y < cy + span; y += step * 1.35) {
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.12 + w1 * 0.35})`
+    for (let y = -size; y < size * 2; y += step * 1.3) {
       ctx.beginPath()
-      ctx.moveTo(cx - span, y)
-      ctx.lineTo(cx + span, y + span * 0.12)
+      ctx.moveTo(0, y)
+      ctx.lineTo(size, y + size * 0.08)
       ctx.stroke()
     }
     ctx.restore()
   }
 
-  if (dither > 0.04) {
+  // SE — sharp halftone dots
+  if (w4 > 0.06) {
     ctx.save()
-    ctx.beginPath()
-    ctx.arc(cx, cy, baseRadius, 0, Math.PI * 2)
-    ctx.clip()
-    const cell = Math.max(2.2, (6.5 - frequency * 3.2) * Math.max(scale, 0.7))
-    const maxR = Math.max(0.45, 2.4 * dither * Math.max(scale, 0.6))
-    for (let ix = 0; ix < size / cell; ix++) {
-      for (let iy = 0; iy < size / cell; iy++) {
+    const cell = Math.max(4, matrixSpacing)
+    const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+    for (let iy = 0; iy < size / cell + 2; iy++) {
+      for (let ix = 0; ix < size / cell + 2; ix++) {
         const x = ix * cell + cell * 0.5
         const y = iy * cell + cell * 0.5
         const dist = Math.hypot(x - cx, y - cy)
-        if (dist > baseRadius) continue
-        const density = 1 - dist / baseRadius
-        const threshold = BAYER4[iy & 3][ix & 3] / 16
-        if (density * (0.3 + dither) > threshold) {
-          const r = Math.max(0.28, maxR * density)
-          ctx.fillStyle = `rgba(244, 244, 240, ${0.22 + dither * 0.35})`
-          ctx.beginPath()
-          ctx.arc(x, y, r, 0, Math.PI * 2)
-          ctx.fill()
-        }
+        const density = Math.max(0, 1 - dist / (radius * 1.15))
+        const threshold = bayer[(iy & 3) * 4 + (ix & 3)] / 16
+        if (density * w4 <= threshold * 0.8) continue
+        const r = Math.min(1.8, Math.max(0.8, dotGain * (0.55 + density * w4)))
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.45 + w4 * 0.5})`
+        ctx.beginPath()
+        ctx.arc(x, y, r, 0, Math.PI * 2)
+        ctx.fill()
       }
     }
     ctx.restore()
   }
 }
 
-export function SpecimenCanvas({
-  weights,
-  size,
-  poleParams = DEFAULT_POLE_PARAMS,
-  compact = false,
-}: SpecimenCanvasProps) {
+export function SpecimenCanvas({ weights, size, settings }: SpecimenCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   useEffect(() => {
@@ -202,19 +160,18 @@ export function SpecimenCanvas({
     if (!canvas) return
     const ctx = canvas.getContext('2d', { alpha: false })
     if (!ctx) return
-
     const dpr = window.devicePixelRatio || 1
     canvas.width = Math.round(size * dpr)
     canvas.height = Math.round(size * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    renderPlate(ctx, size, weights, poleParams)
-  }, [weights, size, poleParams])
+    renderPlate(ctx, size, weights, settings)
+  }, [weights, size, settings])
 
   return (
     <canvas
       ref={canvasRef}
       style={{ width: size, height: size }}
-      className={compact ? 'pointer-events-none block' : 'pointer-events-none block rounded-2xl'}
+      className="pointer-events-none block"
     />
   )
 }
