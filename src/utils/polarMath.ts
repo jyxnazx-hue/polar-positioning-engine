@@ -30,8 +30,15 @@ export interface CornerDefinition {
   sliders: [string, string]
 }
 
+export interface CellCoord {
+  col: number
+  row: number
+}
+
 export interface SpecimenInstance {
   id: string
+  col: number
+  row: number
   x: number
   y: number
   weights: CornerWeights
@@ -41,8 +48,14 @@ export interface SpecimenInstance {
 export const IDW_EPSILON = 0.0001
 export const TILE_SIZE = 72
 export const HERO_SIZE = 160
-export const D_MIN = 88
-export const FIELD_CLAMP = 0.85
+export const INSPECT_SIZE = 480
+export const CELL_SPACING = 84
+export const GRID_COLS = 7
+export const GRID_ROWS = 5
+export const COL_MIN = -3
+export const COL_MAX = 3
+export const ROW_MIN = -2
+export const ROW_MAX = 2
 export const STATUS_BAR_H = 36
 
 export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
@@ -54,6 +67,24 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
   paperSoak: 0.35,
   matrixSpacing: 6,
   dotGain: 1.2,
+}
+
+export const SETTING_BOUNDS: Record<keyof RenderSettings, { min: number; max: number }> = {
+  hatchSpacing: { min: 4, max: 18 },
+  strokeWeight: { min: 0.5, max: 2.5 },
+  chromaticShift: { min: 2, max: 6 },
+  spectralGain: { min: 0.2, max: 1 },
+  inkSpread: { min: 1, max: 3 },
+  paperSoak: { min: 0.15, max: 0.7 },
+  matrixSpacing: { min: 5, max: 12 },
+  dotGain: { min: 0.8, max: 1.8 },
+}
+
+export const CORNER_SETTING_KEYS: Record<CornerKey, [keyof RenderSettings, keyof RenderSettings]> = {
+  w1: ['hatchSpacing', 'strokeWeight'],
+  w2: ['chromaticShift', 'spectralGain'],
+  w3: ['inkSpread', 'paperSoak'],
+  w4: ['matrixSpacing', 'dotGain'],
 }
 
 export const CORNERS: Record<CornerKey, CornerDefinition> = {
@@ -108,40 +139,64 @@ export function calculateCornerWeights(point: Point2D): CornerWeights {
 
 export const BALANCED_WEIGHTS = calculateCornerWeights({ x: 0, y: 0 })
 
-export function clampField(point: Point2D): Point2D {
+export function clampSetting(key: keyof RenderSettings, value: number): number {
+  const { min, max } = SETTING_BOUNDS[key]
+  return Math.min(max, Math.max(min, value))
+}
+
+/** Screen-down row → field Y up. Col/row span the unit square at the grid extremes. */
+export function cellToField(col: number, row: number): Point2D {
   return {
-    x: Math.max(-FIELD_CLAMP, Math.min(FIELD_CLAMP, point.x)),
-    y: Math.max(-FIELD_CLAMP, Math.min(FIELD_CLAMP, point.y)),
+    x: col / COL_MAX,
+    y: -row / ROW_MAX,
   }
 }
 
-export function pixelToNormalizedRect(
-  px: number,
-  py: number,
-  width: number,
-  height: number,
-): Point2D {
-  return clampField({
-    x: (px / width) * 2 - 1,
-    y: 1 - (py / height) * 2,
-  })
-}
-
-export function normalizedToPixelRect(
-  point: Point2D,
+export function cellCenterPixel(
+  col: number,
+  row: number,
   width: number,
   height: number,
 ): Point2D {
   return {
-    x: ((point.x + 1) / 2) * width,
-    y: ((1 - point.y) / 2) * height,
+    x: width / 2 + col * CELL_SPACING,
+    y: height / 2 + row * CELL_SPACING,
   }
 }
 
-export function instanceAtPoint(x: number, y: number): SpecimenInstance {
-  const coords = clampField({ x, y })
+export function pixelToNearestCell(px: number, py: number, width: number, height: number): CellCoord {
+  const col = Math.round((px - width / 2) / CELL_SPACING)
+  const row = Math.round((py - height / 2) / CELL_SPACING)
+  return {
+    col: Math.max(COL_MIN, Math.min(COL_MAX, col)),
+    row: Math.max(ROW_MIN, Math.min(ROW_MAX, row)),
+  }
+}
+
+export function cellOverlapsHero(col: number, row: number): boolean {
+  if (col === 0 && row === 0) return true
+  const tileHalf = TILE_SIZE / 2
+  const heroHalf = HERO_SIZE / 2
+  const cx = col * CELL_SPACING
+  const cy = row * CELL_SPACING
+  return (
+    cx - tileHalf < heroHalf &&
+    cx + tileHalf > -heroHalf &&
+    cy - tileHalf < heroHalf &&
+    cy + tileHalf > -heroHalf
+  )
+}
+
+export function cellKey(col: number, row: number): string {
+  return `${col}:${row}`
+}
+
+export function instanceAtCell(col: number, row: number): SpecimenInstance {
+  const coords = cellToField(col, row)
   return {
     id: crypto.randomUUID(),
+    col,
+    row,
     x: coords.x,
     y: coords.y,
     weights: calculateCornerWeights(coords),
@@ -149,61 +204,11 @@ export function instanceAtPoint(x: number, y: number): SpecimenInstance {
   }
 }
 
-interface PixelObstacle {
-  x: number
-  y: number
-  clearance: number
+export function formatAxis(n: number): string {
+  const sign = n >= 0 ? '+' : '−'
+  return `${sign}${Math.abs(n).toFixed(3)}`
 }
 
-/**
- * Iterative radial push so the stamp center stays ≥ D_min from the hero
- * and every existing tile, then clamp into the [-0.85, 0.85] field.
- */
-export function resolveClearance(
-  px: number,
-  py: number,
-  plane: { width: number; height: number },
-  obstacles: PixelObstacle[],
-): Point2D {
-  let x = px
-  let y = py
-
-  for (let iter = 0; iter < 28; iter++) {
-    let moved = false
-    for (const obs of obstacles) {
-      let dx = x - obs.x
-      let dy = y - obs.y
-      let dist = Math.hypot(dx, dy)
-      if (dist < 1e-4) {
-        const ang = 0.7 + iter * 0.9
-        dx = Math.cos(ang)
-        dy = Math.sin(ang)
-        dist = 0
-      }
-      if (dist < obs.clearance) {
-        const nx = dx / (dist || 1)
-        const ny = dy / (dist || 1)
-        x = obs.x + nx * obs.clearance
-        y = obs.y + ny * obs.clearance
-        moved = true
-      }
-    }
-
-    const clamped = clampField(pixelToNormalizedRect(x, y, plane.width, plane.height))
-    const back = normalizedToPixelRect(clamped, plane.width, plane.height)
-    if (Math.hypot(back.x - x, back.y - y) > 0.5) moved = true
-    x = back.x
-    y = back.y
-    if (!moved) break
-  }
-
-  return clampField(pixelToNormalizedRect(x, y, plane.width, plane.height))
-}
-
-export function heroClearance(): number {
-  return Math.max(D_MIN, (HERO_SIZE + TILE_SIZE) / 2 + 4)
-}
-
-export function tileClearance(): number {
-  return D_MIN
+export function formatCoordBadge(point: Point2D): string {
+  return `[ X: ${formatAxis(point.x)} | Y: ${formatAxis(point.y)} ]`
 }
