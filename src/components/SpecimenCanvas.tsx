@@ -1,11 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
+import type { MutableRefObject } from 'react'
 import type { CornerWeights, RenderSettings } from '../utils/polarMath'
 import { DEFAULT_RENDER_SETTINGS } from '../utils/polarMath'
 
 interface SpecimenCanvasProps {
   weights: CornerWeights
   size: number
-  settings: RenderSettings
+  settings?: RenderSettings
+  exportRef?: MutableRefObject<HTMLCanvasElement | null>
 }
 
 function drawAstrolabe(
@@ -46,6 +48,10 @@ function drawAstrolabe(
     ctx.stroke()
   }
 
+  ctx.beginPath()
+  ctx.arc(ox, cy, radius * 0.08, 0, Math.PI * 2)
+  ctx.stroke()
+
   ctx.restore()
 }
 
@@ -55,7 +61,7 @@ export function renderPlate(
   weights: CornerWeights,
   settings: RenderSettings = DEFAULT_RENDER_SETTINGS,
 ) {
-  ctx.fillStyle = '#111319'
+  ctx.fillStyle = '#0E1015'
   ctx.fillRect(0, 0, size, size)
 
   const cx = size / 2
@@ -67,35 +73,59 @@ export function renderPlate(
   const strokeWeight = settings.strokeWeight
   const chromaticShift = Math.min(6, Math.max(2, settings.chromaticShift))
   const spectralGain = settings.spectralGain
-  const inkWidth = Math.min(3.5, Math.max(1, settings.inkSpread))
+  const inkWidth = Math.min(3, Math.max(1, settings.inkSpread))
   const paperSoak = settings.paperSoak
   const matrixSpacing = settings.matrixSpacing
   const dotGain = Math.min(1.8, Math.max(0.8, settings.dotGain))
 
-  // SW — crisp sumi strokes (no canvas blur)
+  // SW — radial ink pooling, capillary blur, fibrous spreading
   if (w3 > 0.04) {
     ctx.save()
-    ctx.strokeStyle = `rgba(190, 160, 120, ${0.22 + paperSoak * w3})`
+    const pool = ctx.createRadialGradient(cx, cy, radius * 0.12, cx, cy, radius * (1.05 + w3 * 0.22))
+    pool.addColorStop(0, `rgba(168, 128, 78, ${0.12 + paperSoak * w3 * 0.55})`)
+    pool.addColorStop(0.45, `rgba(140, 104, 62, ${0.08 + w3 * 0.18})`)
+    pool.addColorStop(1, 'rgba(14, 16, 21, 0)')
+    ctx.fillStyle = pool
+    ctx.fillRect(0, 0, size, size)
+
+    ctx.strokeStyle = `rgba(180, 150, 110, ${0.22 + paperSoak * w3})`
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
+    ctx.shadowColor = `rgba(180, 140, 90, ${0.35 + w3 * 0.4})`
+    ctx.shadowBlur = 6 + paperSoak * 22 * w3
+
     const bands = 7
     for (let i = 0; i < bands; i++) {
       const t = (i / (bands - 1) - 0.5) * radius * 1.4
-      ctx.lineWidth = inkWidth * (0.65 + w3 * 0.9)
+      ctx.lineWidth = Math.min(4.2, inkWidth * (0.7 + w3 * 1.15))
       ctx.beginPath()
       ctx.moveTo(cx - radius * 0.95, cy + t * 0.35)
       ctx.quadraticCurveTo(cx + t * 0.15, cy + t, cx + radius * 0.95, cy + t * 0.2)
       ctx.stroke()
     }
-    ctx.strokeStyle = `rgba(190, 160, 120, ${0.18 + w3 * 0.28})`
-    ctx.lineWidth = Math.max(1, inkWidth * 0.7)
+
+    ctx.shadowBlur = 10 + w3 * 16
+    ctx.strokeStyle = `rgba(180, 150, 110, ${0.18 + w3 * 0.32})`
+    ctx.lineWidth = Math.min(3.4, Math.max(1, inkWidth * 0.85))
     ctx.beginPath()
     ctx.arc(cx, cy, radius * (0.92 + w3 * 0.08), 0, Math.PI * 2)
     ctx.stroke()
+
+    ctx.shadowBlur = 0
+    ctx.strokeStyle = `rgba(196, 168, 128, ${0.08 + w3 * 0.16})`
+    ctx.lineWidth = 0.6
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2
+      const jitter = 0.82 + ((i * 17) % 7) * 0.02
+      ctx.beginPath()
+      ctx.moveTo(cx + Math.cos(a) * radius * 0.55, cy + Math.sin(a) * radius * 0.55)
+      ctx.lineTo(cx + Math.cos(a) * radius * jitter, cy + Math.sin(a) * radius * jitter)
+      ctx.stroke()
+    }
     ctx.restore()
   }
 
-  // NE — red/cyan offset, 2–6px
+  // NE — red/cyan chromatic split on radial plate lines
   if (w2 > 0.05) {
     const shift = chromaticShift * w2
     const alpha = spectralGain * Math.max(0.35, w2)
@@ -106,12 +136,15 @@ export function renderPlate(
   const plateAlpha = 0.28 + w1 * 0.62
   drawAstrolabe(ctx, cx, cy, radius, 0, `rgba(255, 255, 255, ${plateAlpha})`, strokeWeight)
 
-  // NW — sharp white cross-hatch
+  // NW — intaglio cross-hatch density from w1
   if (w1 > 0.06) {
     ctx.save()
+    ctx.beginPath()
+    ctx.arc(cx, cy, radius * 1.02, 0, Math.PI * 2)
+    ctx.clip()
     ctx.strokeStyle = `rgba(255, 255, 255, ${0.28 + w1 * 0.7})`
-    ctx.lineWidth = Math.max(0.5, strokeWeight)
-    const step = Math.max(3.2, hatchSpacing)
+    ctx.lineWidth = Math.max(0.45, strokeWeight * (0.75 + w1 * 0.35))
+    const step = Math.max(2.6, hatchSpacing / (0.55 + w1 * 1.15))
     for (let x = -size; x < size * 2; x += step) {
       ctx.beginPath()
       ctx.moveTo(x, 0)
@@ -128,10 +161,10 @@ export function renderPlate(
     ctx.restore()
   }
 
-  // SE — sharp halftone dots
+  // SE — Bayer / halftone matrix on high-density regions
   if (w4 > 0.06) {
     ctx.save()
-    const cell = Math.max(4, matrixSpacing)
+    const cell = Math.max(4, matrixSpacing / (0.75 + w4 * 0.45))
     const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
     for (let iy = 0; iy < size / cell + 2; iy++) {
       for (let ix = 0; ix < size / cell + 2; ix++) {
@@ -152,18 +185,26 @@ export function renderPlate(
   }
 }
 
-export function SpecimenCanvas({ weights, size, settings }: SpecimenCanvasProps) {
+export function SpecimenCanvas({ weights, size, settings = DEFAULT_RENDER_SETTINGS, exportRef }: SpecimenCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
+    if (exportRef) exportRef.current = canvas
     const ctx = canvas.getContext('2d', { alpha: false })
     if (!ctx) return
+    ctxRef.current = ctx
     const dpr = window.devicePixelRatio || 1
     canvas.width = Math.round(size * dpr)
     canvas.height = Math.round(size * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  }, [size, exportRef])
+
+  useLayoutEffect(() => {
+    const ctx = ctxRef.current
+    if (!ctx) return
     renderPlate(ctx, size, weights, settings)
   }, [weights, size, settings])
 

@@ -11,8 +11,9 @@ body,
 body {
   margin: 0;
   overflow: hidden;
-  background-color: #090a0e;
+  background-color: #0a0b0e;
   color: #f4f4f0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -52,4 +53,23 @@ body {
   background: #f4f4f0;
   border: 0;
   cursor: pointer;
+}
+
+@keyframes specimen-stamp {
+  from {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.specimen-stamp {
+  transform: translate(-50%, -50%);
+}
+
+.specimen-stamp-inner {
+  animation: specimen-stamp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
