@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 import type { CornerWeights, RenderSettings } from '../utils/polarMath'
-import { DEFAULT_RENDER_SETTINGS } from '../utils/polarMath'
+import { renderPlate } from '../utils/renderPlate'
 
 interface SpecimenCanvasProps {
   weights: CornerWeights
@@ -10,6 +10,7 @@ interface SpecimenCanvasProps {
   exportRef?: MutableRefObject<HTMLCanvasElement | null>
 }
 
+<<<<<<< HEAD
 function drawAstrolabe(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -186,6 +187,9 @@ export function renderPlate(
 }
 
 export function SpecimenCanvas({ weights, size, settings = DEFAULT_RENDER_SETTINGS, exportRef }: SpecimenCanvasProps) {
+=======
+export function SpecimenCanvas({ weights, size, settings }: SpecimenCanvasProps) {
+>>>>>>> 5d10067b0e2bfa9213289a1efc620224dd789a75
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
 
@@ -200,11 +204,15 @@ export function SpecimenCanvas({ weights, size, settings = DEFAULT_RENDER_SETTIN
     canvas.width = Math.round(size * dpr)
     canvas.height = Math.round(size * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+<<<<<<< HEAD
   }, [size, exportRef])
 
   useLayoutEffect(() => {
     const ctx = ctxRef.current
     if (!ctx) return
+=======
+    ctx.filter = 'none'
+>>>>>>> 5d10067b0e2bfa9213289a1efc620224dd789a75
     renderPlate(ctx, size, weights, settings)
   }, [weights, size, settings])
 

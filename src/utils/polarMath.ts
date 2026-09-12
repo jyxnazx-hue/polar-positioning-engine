@@ -34,15 +34,36 @@ export interface CornerDefinition {
   sliders: [string, string]
 }
 
+export interface CellCoord {
+  col: number
+  row: number
+}
+
 export interface SpecimenInstance {
   id: string
+  col: number
+  row: number
   x: number
   y: number
   weights: CornerWeights
 }
 
 export const IDW_EPSILON = 0.0001
+<<<<<<< HEAD
 export const TILE_SIZE = 80
+=======
+export const TILE_SIZE = 72
+export const HERO_SIZE = 160
+export const INSPECT_SIZE = 480
+export const CELL_SPACING = 84
+export const GRID_COLS = 7
+export const GRID_ROWS = 5
+export const COL_MIN = -3
+export const COL_MAX = 3
+export const ROW_MIN = -2
+export const ROW_MAX = 2
+export const STATUS_BAR_H = 36
+>>>>>>> 5d10067b0e2bfa9213289a1efc620224dd789a75
 
 export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
   hatchSpacing: 5.5,
@@ -53,6 +74,24 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
   paperSoak: 0.35,
   matrixSpacing: 6,
   dotGain: 1.2,
+}
+
+export const SETTING_BOUNDS: Record<keyof RenderSettings, { min: number; max: number }> = {
+  hatchSpacing: { min: 4, max: 18 },
+  strokeWeight: { min: 0.5, max: 2.5 },
+  chromaticShift: { min: 2, max: 6 },
+  spectralGain: { min: 0.2, max: 1 },
+  inkSpread: { min: 1, max: 3 },
+  paperSoak: { min: 0.15, max: 0.7 },
+  matrixSpacing: { min: 5, max: 12 },
+  dotGain: { min: 0.8, max: 1.8 },
+}
+
+export const CORNER_SETTING_KEYS: Record<CornerKey, [keyof RenderSettings, keyof RenderSettings]> = {
+  w1: ['hatchSpacing', 'strokeWeight'],
+  w2: ['chromaticShift', 'spectralGain'],
+  w3: ['inkSpread', 'paperSoak'],
+  w4: ['matrixSpacing', 'dotGain'],
 }
 
 export const CORNERS: Record<CornerKey, CornerDefinition> = {
@@ -129,6 +168,7 @@ export function calculateCornerWeights(point: Point2D): CornerWeights {
 
 export const BALANCED_WEIGHTS = calculateCornerWeights({ x: 0, y: 0 })
 
+<<<<<<< HEAD
 export function pixelToNormalizedRect(
   px: number,
   py: number,
@@ -151,14 +191,73 @@ export function normalizedToPixel(point: Point2D, width: number, height: number)
 
 export function createSpecimen(point: Point2D): SpecimenInstance {
   const coords = clampCoordinates(point)
+=======
+export function clampSetting(key: keyof RenderSettings, value: number): number {
+  const { min, max } = SETTING_BOUNDS[key]
+  return Math.min(max, Math.max(min, value))
+}
+
+/** Screen-down row → field Y up. Col/row span the unit square at the grid extremes. */
+export function cellToField(col: number, row: number): Point2D {
+  return {
+    x: col / COL_MAX,
+    y: -row / ROW_MAX,
+  }
+}
+
+export function cellCenterPixel(
+  col: number,
+  row: number,
+  width: number,
+  height: number,
+): Point2D {
+  return {
+    x: width / 2 + col * CELL_SPACING,
+    y: height / 2 + row * CELL_SPACING,
+  }
+}
+
+export function pixelToNearestCell(px: number, py: number, width: number, height: number): CellCoord {
+  const col = Math.round((px - width / 2) / CELL_SPACING)
+  const row = Math.round((py - height / 2) / CELL_SPACING)
+  return {
+    col: Math.max(COL_MIN, Math.min(COL_MAX, col)),
+    row: Math.max(ROW_MIN, Math.min(ROW_MAX, row)),
+  }
+}
+
+export function cellOverlapsHero(col: number, row: number): boolean {
+  if (col === 0 && row === 0) return true
+  const tileHalf = TILE_SIZE / 2
+  const heroHalf = HERO_SIZE / 2
+  const cx = col * CELL_SPACING
+  const cy = row * CELL_SPACING
+  return (
+    cx - tileHalf < heroHalf &&
+    cx + tileHalf > -heroHalf &&
+    cy - tileHalf < heroHalf &&
+    cy + tileHalf > -heroHalf
+  )
+}
+
+export function cellKey(col: number, row: number): string {
+  return `${col}:${row}`
+}
+
+export function instanceAtCell(col: number, row: number): SpecimenInstance {
+  const coords = cellToField(col, row)
+>>>>>>> 5d10067b0e2bfa9213289a1efc620224dd789a75
   return {
     id: crypto.randomUUID(),
+    col,
+    row,
     x: coords.x,
     y: coords.y,
     weights: calculateCornerWeights(coords),
   }
 }
 
+<<<<<<< HEAD
 export function relocateSpecimen(instance: SpecimenInstance, point: Point2D): SpecimenInstance {
   const coords = clampCoordinates(point)
   return {
@@ -169,11 +268,18 @@ export function relocateSpecimen(instance: SpecimenInstance, point: Point2D): Sp
   }
 }
 
+=======
+>>>>>>> 5d10067b0e2bfa9213289a1efc620224dd789a75
 export function formatAxis(n: number): string {
   const sign = n >= 0 ? '+' : '−'
   return `${sign}${Math.abs(n).toFixed(3)}`
 }
 
+<<<<<<< HEAD
 export function pct(n: number): string {
   return `${Math.round(n * 100)}%`
+=======
+export function formatCoordBadge(point: Point2D): string {
+  return `[ X: ${formatAxis(point.x)} | Y: ${formatAxis(point.y)} ]`
+>>>>>>> 5d10067b0e2bfa9213289a1efc620224dd789a75
 }

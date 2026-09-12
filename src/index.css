@@ -55,6 +55,7 @@ body {
   cursor: pointer;
 }
 
+<<<<<<< HEAD
 @keyframes specimen-stamp {
   from {
     opacity: 0;
@@ -72,4 +73,25 @@ body {
 
 .specimen-stamp-inner {
   animation: specimen-stamp 400ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+=======
+.tile-spring {
+  transform: translate(-50%, -50%);
+  animation: tile-spring 520ms cubic-bezier(0.22, 1.4, 0.36, 1) both;
+  will-change: transform, opacity;
+}
+
+@keyframes tile-spring {
+  0% {
+    transform: translate(-50%, -50%) scale(0.42);
+    opacity: 0;
+  }
+  62% {
+    transform: translate(-50%, -50%) scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+>>>>>>> 5d10067b0e2bfa9213289a1efc620224dd789a75
 }
