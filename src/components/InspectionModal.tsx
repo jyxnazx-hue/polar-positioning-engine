@@ -9,8 +9,11 @@ function downloadBlob(blob: Blob, filename: string) {
   const link = document.createElement('a')
   link.href = url
   link.download = filename
+  link.rel = 'noopener'
+  document.body.appendChild(link)
   link.click()
-  URL.revokeObjectURL(url)
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500)
 }
 
 export function InspectionModal({
@@ -34,8 +37,9 @@ export function InspectionModal({
     const slug = `specimen_${instance.col}_${instance.row}`
     const png = await renderPlateToPngBlob(INSPECT_SIZE, instance.weights, settings)
     downloadBlob(png, `${slug}.png`)
+    await new Promise((resolve) => window.setTimeout(resolve, 80))
     const svg = plateToSvg(INSPECT_SIZE, instance.weights, settings)
-    downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), `${slug}.svg`)
+    downloadBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), `${slug}.svg`)
   }
 
   const { w1, w2, w3, w4 } = instance.weights
